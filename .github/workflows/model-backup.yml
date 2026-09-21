@@ -1,0 +1,95 @@
+name: model-backup
+# Backup de los pesos de Chatterbox (add-on "Clonar tu voz" del plugin Vision IA).
+#
+# Vive en ESTE repo (mcges/vision-addons) y no en el repo privado del plugin a proposito: el
+# GITHUB_TOKEN de aqui puede crear Releases y subir assets en este mismo repo, asi que funciona
+# sin ningun token externo ni secreto que mantener.
+#
+# Que hace: baja de HuggingFace los ficheros EXACTOS que carga el add-on, los trocea si pasan de
+# 1,9 GB (limite de 2 GB por asset de GitHub), sube los assets + `manifest.json` y libera disco.
+# El add-on solo usa este backup si HuggingFace no responde, y verifica el SHA-256 del manifiesto.
+#
+# Uso: Actions -> model-backup -> Run workflow (variante: ambos | multilingue | base).
+on:
+  workflow_dispatch:
+    inputs:
+      variante:
+        description: 'Variante a respaldar'
+        required: true
+        default: 'ambos'
+        type: choice
+        options:
+          - ambos
+          - multilingue
+          - base
+      tag:
+        description: 'Etiqueta del Release donde se guarda el backup'
+        required: true
+        default: 'voice-model-chatterbox-1'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: model-backup
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    steps:
+      - name: Disco disponible (antes)
+        run: df -h /
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Instalar huggingface_hub
+        run: pip install --no-cache-dir "huggingface_hub>=0.23,<1"
+
+      - name: Construir y subir el backup
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          python3 model-backup/voice_model_backup.py \
+            --out dist \
+            --variante "${{ inputs.variante }}" \
+            --limpiar-cache \
+            --subir "${{ github.repository }}" "${{ inputs.tag }}"
+
+      - name: Comprobar el manifiesto publicado
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os, urllib.request
+          repo = os.environ['GITHUB_REPOSITORY']
+          tag = os.environ['INPUT_TAG']
+          url = 'https://github.com/%s/releases/download/%s/manifest.json' % (repo, tag)
+          with urllib.request.urlopen(url, timeout=60) as r:
+              man = json.loads(r.read().decode('utf-8'))
+          assert man.get('variantes'), 'manifiesto sin variantes'
+          for var, datos in man['variantes'].items():
+              total = sum((f.get('size') or 0) for f in datos.get('files') or [])
+              partes = sum(len(f.get('parts') or []) for f in datos.get('files') or [])
+              print('%-12s %d ficheros, %.2f GB, %d partes' % (var, len(datos['files']), total / 1e9, partes))
+          print('manifest OK')
+          PY
+
+      - name: Resumen
+        if: always()
+        run: |
+          {
+            echo "### Backup del modelo de voz"
+            echo "- Variante: ${{ inputs.variante }}"
+            echo "- Release: ${{ github.server_url }}/${{ github.repository }}/releases/tag/${{ inputs.tag }}"
+            echo ""
+            echo '```'
+            df -h /
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
