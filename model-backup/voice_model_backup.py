@@ -65,13 +65,14 @@ def sha256_file(ruta):
     return h.hexdigest()
 
 
-def trocear(ruta, destino_dir, max_bytes=PARTE_MAX_BYTES):
+def trocear(ruta, destino_dir, max_bytes=PARTE_MAX_BYTES, nombre=None):
     """Parte `ruta` en trozos de `max_bytes`. Devuelve la lista de partes del manifiesto.
 
     El fichero original NO se borra aqui (lo decide quien llama): el hash del fichero completo
-    se calcula antes, durante el troceado.
+    se calcula antes, durante el troceado. `nombre` permite forzar el nombre base de las partes
+    (para no ensuciar el asset con el sufijo del fichero temporal).
     """
-    nombre = os.path.basename(ruta)
+    nombre = nombre or os.path.basename(ruta)
     partes = []
     with open(ruta, 'rb') as fh:
         indice = 0
@@ -109,9 +110,10 @@ def construir(variante, out_dir, revision=''):
         registro = {'name': nombre, 'size': size, 'sha256': digest, 'parts': []}
         if size > PARTE_MAX_BYTES:
             # Troceado: se copia a `out_dir` por partes y el original se descarta (disco del CI).
+            # Las partes se llaman `<nombre>.partNN` (limpio) y se borra el temporal al terminar.
             destino = os.path.join(out_dir, nombre + '.fuente')
             shutil.copy2(ruta, destino)
-            registro['parts'] = trocear(destino, out_dir)
+            registro['parts'] = trocear(destino, out_dir, PARTE_MAX_BYTES, nombre=nombre)
             os.remove(destino)
             log('  troceado en %d partes (%s)' % (len(registro['parts']), nombre))
         else:
