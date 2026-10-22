@@ -230,8 +230,8 @@ jobs:
           sha="$(sha256sum ffmpeg-video.zip | awk '{print $1}')"
           echo "$sha  ffmpeg-video.zip" > ffmpeg-video.zip.sha256
           echo "zip=$(( $(stat -c%s ffmpeg-video.zip) / 1048576 )) MB  sha256=$sha"
-          "SHA256=$sha" >> "$GITHUB_STEP_SUMMARY"
-          "TAMANO_MB=$(( $(stat -c%s ffmpeg-video.zip) / 1048576 ))" >> "$GITHUB_STEP_SUMMARY"
+          echo "SHA256=$sha" >> "$GITHUB_STEP_SUMMARY"
+          echo "TAMANO_MB=$(( $(stat -c%s ffmpeg-video.zip) / 1048576 ))" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Artifact (si no se publica)
         if: github.event.inputs.publicar != 'si'
