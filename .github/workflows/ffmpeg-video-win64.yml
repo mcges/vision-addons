@@ -247,6 +247,7 @@ jobs:
         if: github.event.inputs.publicar == 'si'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
           TAG="${{ github.event.inputs.release-tag }}"
