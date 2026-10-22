@@ -133,7 +133,7 @@ jobs:
 
           if ! ./configure \
             --cross-prefix=x86_64-w64-mingw32- --arch=x86_64 --target-os=mingw32 \
-            --enable-gpl --enable-libx264 \
+            --enable-gpl --enable-libx264 --pkg-config=pkg-config \
             --pkg-config-flags="--static" \
             --extra-cflags="-I$X264_PREFIX/include" --extra-ldflags="-L$X264_PREFIX/lib -static -static-libgcc" \
             --disable-everything --disable-doc --disable-debug --disable-network \
