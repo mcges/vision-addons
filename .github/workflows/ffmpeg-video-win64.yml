@@ -105,17 +105,21 @@ jobs:
           # enlace a mano antes de llamar a configure.
           mkdir -p "$X264_PREFIX/lib/pkgconfig"
           cat > "$X264_PREFIX/lib/pkgconfig/x264.pc" <<EOF
-prefix=$X264_PREFIX
-exec_prefix=\${prefix}
-libdir=\${prefix}/lib
-includedir=\${prefix}/include
+          prefix=$X264_PREFIX
+          exec_prefix=\${prefix}
+          libdir=\${prefix}/lib
+          includedir=\${prefix}/include
 
-Name: x264
-Description: H.264 (x264)
-Version: 0.165
-Libs: -L\${libdir} -lx264
-Cflags: -I\${includedir}
-EOF
+          Name: x264
+          Description: H.264 (x264)
+          Version: 0.165
+          Libs: -L\${libdir} -lx264
+          Cflags: -I\${includedir}
+          EOF
+          # El bloque de arriba conserva la indentacion del YAML: se recorta para que el .pc
+          # quede limpio (pkg-config no tolera espacios delante de las claves).
+          sed -i 's/^          //' "$X264_PREFIX/lib/pkgconfig/x264.pc"
+          cat "$X264_PREFIX/lib/pkgconfig/x264.pc"
           export PKG_CONFIG_PATH="$X264_PREFIX/lib/pkgconfig"
           export PKG_CONFIG_LIBDIR="$X264_PREFIX/lib/pkgconfig"
           pkg-config --exists x264 && pkg-config --modversion x264 || { echo 'ERROR: pkg-config no ve x264'; exit 1; }
