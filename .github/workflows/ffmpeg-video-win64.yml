@@ -128,7 +128,10 @@ jobs:
             -static -static-libgcc -o /tmp/t.exe || { echo 'ERROR: libx264.a no enlaza para mingw'; exit 1; }
           echo 'OK: x264 enlaza para mingw'
 
-          ./configure \
+          echo "pkg-config cflags: $(pkg-config --cflags x264)"
+          echo "pkg-config libs:   $(pkg-config --libs --static x264)"
+
+          if ! ./configure \
             --cross-prefix=x86_64-w64-mingw32- --arch=x86_64 --target-os=mingw32 \
             --enable-gpl --enable-libx264 \
             --pkg-config-flags="--static" \
@@ -141,7 +144,11 @@ jobs:
             --enable-decoder="$DECODERS" --enable-parser="$PARSERS" \
             --enable-filter="$FILTERS" --enable-encoder="$ENCODERS" \
             --enable-swscale --enable-swresample --enable-avfilter \
-            --enable-bsf=h264_mp4toannexb,hevc_mp4toannexb,aac_adtstoasc
+            --enable-bsf=h264_mp4toannexb,hevc_mp4toannexb,aac_adtstoasc ; then
+            echo '=== config.log (ultimas 60 lineas) ==='
+            tail -60 ffbuild/config.log || true
+            exit 1
+          fi
 
           make -j"$(nproc)"
           mkdir -p pkg
