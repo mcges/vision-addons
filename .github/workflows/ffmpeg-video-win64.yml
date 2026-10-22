@@ -205,7 +205,7 @@ jobs:
             ffmpeg-video.zip.sha256
           if-no-files-found: error
 
-      - name: Publicar el Release (mismo repo publico: CDN gratis)
+      - name: Publicar el Release en el repo publico (CDN gratis)
         if: github.event.inputs.publicar == 'si'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
