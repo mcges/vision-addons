@@ -98,9 +98,17 @@ jobs:
           FILTERS="$(filter_components filter scale crop pad trim atrim fps setpts asetpts aresample anull format null transpose hflip vflip overlay concat setsar)"
           ENCODERS="$(filter_components encoder libx264 aac pcm_s16le mjpeg)"
 
+          # x264 esta instalado en un prefix FUERA del sistema: configure lo busca por
+          # pkg-config, asi que hay que apuntar PKG_CONFIG_PATH a su .pc (si no:
+          # "x264 not found using pkg-config").
+          export PKG_CONFIG_PATH="$X264_PREFIX/lib/pkgconfig:$X264_PREFIX/lib64/pkgconfig"
+          export PKG_CONFIG_LIBDIR="$X264_PREFIX/lib/pkgconfig:$X264_PREFIX/lib64/pkgconfig"
+          pkg-config --exists x264 && pkg-config --modversion x264 || { echo 'ERROR: pkg-config no ve x264'; exit 1; }
+
           ./configure \
             --cross-prefix=x86_64-w64-mingw32- --arch=x86_64 --target-os=mingw32 \
             --enable-gpl --enable-libx264 \
+            --pkg-config-flags="--static" \
             --extra-cflags="-I$X264_PREFIX/include" --extra-ldflags="-L$X264_PREFIX/lib -static -static-libgcc" \
             --disable-everything --disable-doc --disable-debug --disable-network \
             --disable-autodetect --enable-static --disable-shared \
