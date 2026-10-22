@@ -1,0 +1,235 @@
+# Compila el addon `ffmpeg-video` del companion (H.264) y lo publica en ESTE repo publico.
+#
+# Por que aqui: `mcges/vision` es privado y sus assets dan 404 al cliente final. Este repo
+# (solo assets) es publico y su CDN es gratuito: el companion descarga el addon de aqui.
+#
+# Que compila: ffmpeg recortado (PE x64 estatico, sin DLLs) con lo justo para RECORTAR CLIPS
+# de video y publicarlos en redes: demuxers/muxers mp4/mov/matroska/webm/avi, decoders
+# h264/hevc/vp8/vp9/av1/aac/mp3/opus/vorbis/flac/png/mjpeg, filtros scale/crop/pad/trim/atrim/
+# fps/setpts/overlay/concat y encoders libx264 + aac. Nada de ffplay, ffprobe ni doc.
+#
+# Licencia: libx264 es GPL, asi que el binario resultante es GPLv2+. El zip publica
+# LICENSE-GPLv2.txt + SOURCES.txt con los commits EXACTOS y la linea de configure para
+# recompilarlo (cumplimiento GPL). Si se prefiere evitar GPL, usar libopenh264.
+#
+# Uso: Actions -> "ffmpeg video win64 (addon companion)" -> Run workflow.
+# El propio run crea/actualiza el Release y adjunta ffmpeg-video.zip + .sha256.
+name: ffmpeg video win64 (addon companion)
+
+on:
+  workflow_dispatch:
+    inputs:
+      ffmpeg-ref:
+        description: 'Rama/tag de FFmpeg a compilar'
+        required: false
+        default: 'release/8.2'
+      x264-ref:
+        description: 'Rama/tag de x264 a compilar'
+        required: false
+        default: 'stable'
+      release-tag:
+        description: 'Tag del Release donde publicar el zip (debe coincidir con media-module.js)'
+        required: false
+        default: 'ffmpeg-video-8.2'
+      publicar:
+        description: 'Publicar el asset en el Release (no = solo artifact)'
+        type: choice
+        options: ['si', 'no']
+        default: 'si'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ffmpeg-video-win64
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      FFMPEG_REF: ${{ github.event.inputs.ffmpeg-ref }}
+      X264_REF: ${{ github.event.inputs.x264-ref }}
+    steps:
+      - name: Dependencias (mingw-w64 + nasm + zip)
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential nasm pkg-config mingw-w64 zip file
+
+      - name: Compilar x264 para mingw-w64 (GPL)
+        run: |
+          set -euo pipefail
+          PREFIX="$RUNNER_TEMP/x264-mingw"
+          git clone --depth 1 -b "$X264_REF" https://code.videolan.org/videolan/x264.git "$RUNNER_TEMP/x264" 2>/dev/null \
+            || git clone --depth 1 -b "$X264_REF" https://github.com/mirror/x264.git "$RUNNER_TEMP/x264"
+          cd "$RUNNER_TEMP/x264"
+          echo "X264_COMMIT=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+          ./configure --host=x86_64-w64-mingw32 --cross-prefix=x86_64-w64-mingw32- \
+            --prefix="$PREFIX" --enable-static --enable-pic --disable-cli --disable-opencl
+          make -j"$(nproc)"
+          make install
+          ls -l "$PREFIX/lib/libx264.a"
+          echo "X264_PREFIX=$PREFIX" >> "$GITHUB_ENV"
+
+      - name: Compilar FFmpeg recortado con video (x264 + aac)
+        run: |
+          set -euo pipefail
+          WORK="$RUNNER_TEMP"
+          git clone --depth 1 -b "$FFMPEG_REF" https://github.com/FFmpeg/FFmpeg.git "$WORK/ffmpeg"
+          cd "$WORK/ffmpeg"
+          echo "FFMPEG_COMMIT=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+          # Filtros por nombre: si una version no trae alguno, configure falla. Se validan
+          # contra el propio configure y los desconocidos se omiten con aviso.
+          filter_components() {
+            local kind="$1"; shift
+            local valid out=() n
+            valid="$(./configure --list-${kind}s 2>/dev/null | tr -s '[:space:]' '\n' || true)"
+            for n in "$@"; do
+              if [ -z "$valid" ] || printf '%s\n' "$valid" | grep -qx -- "$n"; then out+=("$n"); else echo "AVISO: $kind desconocido, se omite: $n"; fi
+            done
+            (IFS=,; echo "${out[*]}")
+          }
+          DEMUXERS="$(filter_components demuxer mov matroska avi flv ogg wav mjpeg image2 mp3 aac)"
+          MUXERS="$(filter_components muxer mp4 mov matroska webm avi gif wav null)"
+          DECODERS="$(filter_components decoder h264 hevc vp8 vp9 av1 aac aac_latm mp3 mp3float opus vorbis flac mjpeg png pcm_s16le pcm_s24le)"
+          PARSERS="$(filter_components parser h264 hevc vp9 av1 aac mpegaudio opus vorbis)"
+          FILTERS="$(filter_components filter scale crop pad trim atrim fps setpts asetpts aresample anull format null transpose hflip vflip overlay concat setsar)"
+          ENCODERS="$(filter_components encoder libx264 aac pcm_s16le mjpeg png)"
+
+          ./configure \
+            --cross-prefix=x86_64-w64-mingw32- --arch=x86_64 --target-os=mingw32 \
+            --enable-gpl --enable-libx264 \
+            --extra-cflags="-I$X264_PREFIX/include" --extra-ldflags="-L$X264_PREFIX/lib -static -static-libgcc" \
+            --disable-everything --disable-doc --disable-debug --disable-network \
+            --disable-autodetect --enable-static --disable-shared \
+            --disable-programs --enable-ffmpeg \
+            --enable-protocol=file,pipe \
+            --enable-demuxer="$DEMUXERS" --enable-muxer="$MUXERS" \
+            --enable-decoder="$DECODERS" --enable-parser="$PARSERS" \
+            --enable-filter="$FILTERS" --enable-encoder="$ENCODERS" \
+            --enable-swscale --enable-swresample --enable-avfilter \
+            --enable-bsf=h264_mp4toannexb,hevc_mp4toannexb,aac_adtstoasc
+
+          make -j"$(nproc)"
+          mkdir -p pkg
+          cp ffmpeg.exe pkg/ffmpeg.exe
+          cp COPYING.GPLv2 pkg/LICENSE-GPLv2.txt
+          ls -lh pkg/ffmpeg.exe
+
+      - name: Verificar el binario (PE x64, peso y H.264 compilado)
+        run: |
+          set -euo pipefail
+          BIN=pkg/ffmpeg.exe
+          file "$BIN"
+          file "$BIN" | grep -q 'PE32+ executable' || { echo 'ERROR: no es un ejecutable PE x64'; exit 1; }
+          SIZE="$(stat -c%s "$BIN")"
+          echo "peso=$((SIZE / 1048576)) MB"
+          test "$SIZE" -gt 5000000 || { echo 'ERROR: binario demasiado pequenio (build roto)'; exit 1; }
+          test "$SIZE" -lt 115000000 || { echo 'ERROR: binario demasiado grande (el recorte no se aplico)'; exit 1; }
+          # Sin wine no se puede ejecutar un exe de Windows: se comprueba que las cadenas de los
+          # componentes pedidos estan DENTRO del binario (configure los compilo de verdad).
+          for s in libx264 h264_mp4toannexb scale aac matroska mp4; do
+            strings -a "$BIN" | grep -q -- "$s" || { echo "ERROR: falta '$s' en el binario"; exit 1; }
+          done
+          echo 'OK: componentes presentes'
+
+      - name: Probar con wine (informativo)
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          if ! command -v wine >/dev/null 2>&1 && ! command -v wine64 >/dev/null 2>&1; then
+            echo 'wine no disponible: se omite (el exe se verifica por PE + strings).'
+            exit 0
+          fi
+          WINE="$(command -v wine64 || command -v wine)"
+          "$WINE" pkg/ffmpeg.exe -hide_banner -version || true
+          "$WINE" pkg/ffmpeg.exe -hide_banner -encoders 2>/dev/null | grep -E 'libx264|aac' || true
+
+      - name: Paquete ffmpeg-video.zip + sha256 + SOURCES.txt
+        run: |
+          set -euo pipefail
+          cat > pkg/SOURCES.txt <<EOF
+          ffmpeg-video (addon del companion Vision-IA) - codigo fuente correspondiente (GPLv2+)
+
+          Este binario es GPLv2+ porque enlaza libx264. Para recompilarlo exactamente:
+
+            FFmpeg commit : $FFMPEG_COMMIT   (rama/tag: $FFMPEG_REF)
+            x264 commit   : $X264_COMMIT   (rama/tag: $X264_REF)
+            Fuentes FFmpeg: https://github.com/FFmpeg/FFmpeg  (git checkout $FFMPEG_COMMIT)
+            Fuentes x264  : https://code.videolan.org/videolan/x264 (git checkout $X264_COMMIT)
+            Herramientas  : Ubuntu, build-essential nasm pkg-config mingw-w64
+
+          x264 (cross mingw):
+            ./configure --host=x86_64-w64-mingw32 --cross-prefix=x86_64-w64-mingw32- \\
+              --prefix=\$X264_PREFIX --enable-static --enable-pic --disable-cli --disable-opencl
+            make && make install
+
+          ffmpeg:
+            ./configure --cross-prefix=x86_64-w64-mingw32- --arch=x86_64 --target-os=mingw32 \\
+              --enable-gpl --enable-libx264 \\
+              --extra-cflags="-I\$X264_PREFIX/include" \\
+              --extra-ldflags="-L\$X264_PREFIX/lib -static -static-libgcc" \\
+              --disable-everything --disable-doc --disable-debug --disable-network \\
+              --disable-autodetect --enable-static --disable-shared \\
+              --disable-programs --enable-ffmpeg --enable-protocol=file,pipe \\
+              --enable-demuxer=mov,matroska,avi,flv,ogg,wav,mjpeg,image2,mp3,aac \\
+              --enable-muxer=mp4,mov,matroska,webm,avi,gif,wav,null \\
+              --enable-decoder=h264,hevc,vp8,vp9,av1,aac,aac_latm,mp3,mp3float,opus,vorbis,flac,mjpeg,png,pcm_s16le,pcm_s24le \\
+              --enable-parser=h264,hevc,vp9,av1,aac,mpegaudio,opus,vorbis \\
+              --enable-filter=scale,crop,pad,trim,atrim,fps,setpts,asetpts,aresample,anull,format,null,transpose,hflip,vflip,overlay,concat,setsar \\
+              --enable-encoder=libx264,aac,pcm_s16le,mjpeg,png \\
+              --enable-swscale --enable-swresample --enable-avfilter \\
+              --enable-bsf=h264_mp4toannexb,hevc_mp4toannexb,aac_adtstoasc
+            make
+
+          El workflow que lo genero esta en este mismo repo:
+            .github/workflows/ffmpeg-video-win64.yml
+          EOF
+          rm -f ffmpeg-video.zip ffmpeg-video.zip.sha256
+          ( cd pkg && zip -9 -j ../ffmpeg-video.zip ffmpeg.exe LICENSE-GPLv2.txt SOURCES.txt )
+          sha="$(sha256sum ffmpeg-video.zip | awk '{print $1}')"
+          echo "$sha  ffmpeg-video.zip" > ffmpeg-video.zip.sha256
+          echo "zip=$(( $(stat -c%s ffmpeg-video.zip) / 1048576 )) MB  sha256=$sha"
+          "SHA256=$sha" >> "$GITHUB_STEP_SUMMARY"
+          "TAMANO_MB=$(( $(stat -c%s ffmpeg-video.zip) / 1048576 ))" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Artifact (si no se publica)
+        if: github.event.inputs.publicar != 'si'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ffmpeg-video-win64
+          path: |
+            ffmpeg-video.zip
+            ffmpeg-video.zip.sha256
+          if-no-files-found: error
+
+      - name: Publicar el Release (mismo repo publico: CDN gratis)
+        if: github.event.inputs.publicar == 'si'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG="${{ github.event.inputs.release-tag }}"
+          SHA="$(awk '{print $1}' ffmpeg-video.zip.sha256)"
+          cat > notas.md <<EOF
+          ffmpeg con VIDEO (H.264) para el companion de Vision-IA.
+
+          El companion lo descarga SOLO, verificado y en segundo plano tras instalarse (no se
+          embebe en el .exe: la mayoria de usuarios nunca recorta video). Comprueba tamano,
+          ejecutable, \`-version\` y que \`-encoders\` liste un encoder H.264.
+
+          Contenido: ffmpeg.exe (PE x64 estatico, sin DLLs) + LICENSE-GPLv2.txt + SOURCES.txt.
+
+          - ffmpeg-video.zip (sha256 $SHA)
+          - ffmpeg-video.zip.sha256
+
+          Licencia: GPLv2+ (por libx264). SOURCES.txt trae los commits exactos y la linea de
+          configure para recompilar.
+          EOF
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --title "ffmpeg video (addon companion) $TAG" --notes-file notas.md
+          gh release edit "$TAG" --notes-file notas.md
+          gh release upload "$TAG" ffmpeg-video.zip ffmpeg-video.zip.sha256 --clobber
+          echo "Publicado: https://github.com/${{ github.repository }}/releases/download/$TAG/ffmpeg-video.zip"
+          echo "SHA para media-module.js: $SHA" >> "$GITHUB_STEP_SUMMARY"
