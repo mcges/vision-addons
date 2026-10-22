@@ -22,7 +22,7 @@ on:
       ffmpeg-ref:
         description: 'Rama/tag de FFmpeg a compilar'
         required: false
-        default: 'release/8.2'
+        default: 'release/8.1'
       x264-ref:
         description: 'Rama/tag de x264 a compilar'
         required: false
@@ -30,7 +30,7 @@ on:
       release-tag:
         description: 'Tag del Release donde publicar el zip (debe coincidir con media-module.js)'
         required: false
-        default: 'ffmpeg-video-8.2'
+        default: 'ffmpeg-video-8.1'
       publicar:
         description: 'Publicar el asset en el Release (no = solo artifact)'
         type: choice
@@ -93,10 +93,10 @@ jobs:
           }
           DEMUXERS="$(filter_components demuxer mov matroska avi flv ogg wav mjpeg image2 mp3 aac)"
           MUXERS="$(filter_components muxer mp4 mov matroska webm avi gif wav null)"
-          DECODERS="$(filter_components decoder h264 hevc vp8 vp9 av1 aac aac_latm mp3 mp3float opus vorbis flac mjpeg png pcm_s16le pcm_s24le)"
+          DECODERS="$(filter_components decoder h264 hevc vp8 vp9 av1 aac aac_latm mp3 mp3float opus vorbis flac mjpeg pcm_s16le pcm_s24le)"
           PARSERS="$(filter_components parser h264 hevc vp9 av1 aac mpegaudio opus vorbis)"
           FILTERS="$(filter_components filter scale crop pad trim atrim fps setpts asetpts aresample anull format null transpose hflip vflip overlay concat setsar)"
-          ENCODERS="$(filter_components encoder libx264 aac pcm_s16le mjpeg png)"
+          ENCODERS="$(filter_components encoder libx264 aac pcm_s16le mjpeg)"
 
           ./configure \
             --cross-prefix=x86_64-w64-mingw32- --arch=x86_64 --target-os=mingw32 \
@@ -176,10 +176,10 @@ jobs:
               --disable-programs --enable-ffmpeg --enable-protocol=file,pipe \\
               --enable-demuxer=mov,matroska,avi,flv,ogg,wav,mjpeg,image2,mp3,aac \\
               --enable-muxer=mp4,mov,matroska,webm,avi,gif,wav,null \\
-              --enable-decoder=h264,hevc,vp8,vp9,av1,aac,aac_latm,mp3,mp3float,opus,vorbis,flac,mjpeg,png,pcm_s16le,pcm_s24le \\
+              --enable-decoder=h264,hevc,vp8,vp9,av1,aac,aac_latm,mp3,mp3float,opus,vorbis,flac,mjpeg,pcm_s16le,pcm_s24le \\
               --enable-parser=h264,hevc,vp9,av1,aac,mpegaudio,opus,vorbis \\
               --enable-filter=scale,crop,pad,trim,atrim,fps,setpts,asetpts,aresample,anull,format,null,transpose,hflip,vflip,overlay,concat,setsar \\
-              --enable-encoder=libx264,aac,pcm_s16le,mjpeg,png \\
+              --enable-encoder=libx264,aac,pcm_s16le,mjpeg \\
               --enable-swscale --enable-swresample --enable-avfilter \\
               --enable-bsf=h264_mp4toannexb,hevc_mp4toannexb,aac_adtstoasc
             make
